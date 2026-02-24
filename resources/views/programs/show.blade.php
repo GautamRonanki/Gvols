@@ -249,6 +249,134 @@
                 </section>
                 @endif
 
+                {{-- Request for Information Form --}}
+                <section id="rfi" class="bg-gradient-to-br from-indigo-50 to-blue-50 border border-indigo-100 rounded-2xl p-8">
+                    <div class="mb-6">
+                        <h2 class="text-xl font-bold text-gray-900 flex items-center gap-2">
+                            <span class="w-1 h-6 rounded-full bg-indigo-600 inline-block"></span>
+                            Request for Information
+                        </h2>
+                        <p class="text-sm text-gray-500 mt-1">Fill out the form below and we'll send you more details about this program.</p>
+                    </div>
+
+                    @if(session('rfi_success'))
+                        <div class="flex flex-col items-center justify-center py-8 text-center">
+                            <div class="w-14 h-14 rounded-full bg-green-100 flex items-center justify-center mb-4">
+                                <svg class="w-7 h-7 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/>
+                                </svg>
+                            </div>
+                            <h3 class="font-bold text-gray-900 text-lg">Thank you!</h3>
+                            <p class="text-gray-500 text-sm mt-1">Your request has been received. We'll be in touch soon.</p>
+                        </div>
+                    @else
+                        <form action="{{ route('rfi.store') }}" method="POST">
+                            @csrf
+                            <input type="hidden" name="program_id" value="{{ $program->id }}">
+
+                            <div class="grid sm:grid-cols-2 gap-4">
+                                <div>
+                                    <label for="rfi_full_name" class="block text-sm font-medium text-gray-700 mb-1">
+                                        Full Name <span class="text-red-500">*</span>
+                                    </label>
+                                    <input
+                                        type="text"
+                                        id="rfi_full_name"
+                                        name="full_name"
+                                        value="{{ old('full_name') }}"
+                                        required
+                                        placeholder="Jane Smith"
+                                        class="w-full text-sm border {{ $errors->has('full_name') ? 'border-red-400' : 'border-gray-200' }} rounded-xl px-4 py-2.5 bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition"
+                                    >
+                                    @error('full_name')
+                                        <p class="text-red-500 text-xs mt-1">{{ $message }}</p>
+                                    @enderror
+                                </div>
+
+                                <div>
+                                    <label for="rfi_email" class="block text-sm font-medium text-gray-700 mb-1">
+                                        Email Address <span class="text-red-500">*</span>
+                                    </label>
+                                    <input
+                                        type="email"
+                                        id="rfi_email"
+                                        name="email"
+                                        value="{{ old('email') }}"
+                                        required
+                                        placeholder="jane@example.com"
+                                        class="w-full text-sm border {{ $errors->has('email') ? 'border-red-400' : 'border-gray-200' }} rounded-xl px-4 py-2.5 bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition"
+                                    >
+                                    @error('email')
+                                        <p class="text-red-500 text-xs mt-1">{{ $message }}</p>
+                                    @enderror
+                                </div>
+
+                                <div>
+                                    <label for="rfi_phone" class="block text-sm font-medium text-gray-700 mb-1">
+                                        Phone Number
+                                    </label>
+                                    <input
+                                        type="tel"
+                                        id="rfi_phone"
+                                        name="phone_number"
+                                        value="{{ old('phone_number') }}"
+                                        placeholder="+1 (555) 000-0000"
+                                        class="w-full text-sm border {{ $errors->has('phone_number') ? 'border-red-400' : 'border-gray-200' }} rounded-xl px-4 py-2.5 bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition"
+                                    >
+                                    @error('phone_number')
+                                        <p class="text-red-500 text-xs mt-1">{{ $message }}</p>
+                                    @enderror
+                                </div>
+
+                                <div>
+                                    <label for="rfi_term" class="block text-sm font-medium text-gray-700 mb-1">
+                                        When do you want to start?
+                                    </label>
+                                    <select
+                                        id="rfi_term"
+                                        name="admission_term_id"
+                                        class="w-full text-sm border {{ $errors->has('admission_term_id') ? 'border-red-400' : 'border-gray-200' }} rounded-xl px-4 py-2.5 bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition"
+                                    >
+                                        <option value="">Select a term...</option>
+                                        @foreach($admissionTerms as $term)
+                                            <option value="{{ $term->id }}" {{ old('admission_term_id') == $term->id ? 'selected' : '' }}>
+                                                {{ $term->name }}
+                                            </option>
+                                        @endforeach
+                                    </select>
+                                    @error('admission_term_id')
+                                        <p class="text-red-500 text-xs mt-1">{{ $message }}</p>
+                                    @enderror
+                                </div>
+
+                                <div class="sm:col-span-2">
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">
+                                        Program Interest
+                                    </label>
+                                    <input
+                                        type="text"
+                                        value="{{ $program->title }}"
+                                        disabled
+                                        class="w-full text-sm border border-gray-100 rounded-xl px-4 py-2.5 bg-gray-50 text-gray-500 cursor-not-allowed"
+                                    >
+                                </div>
+                            </div>
+
+                            <div class="mt-5">
+                                <button
+                                    type="submit"
+                                    class="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-sm px-6 py-3 rounded-xl transition-colors"
+                                >
+                                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
+                                    </svg>
+                                    Request Information
+                                </button>
+                            </div>
+                        </form>
+                    @endif
+                </section>
+
             </div>
 
             {{-- RIGHT: Sticky sidebar --}}
