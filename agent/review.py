@@ -1,6 +1,7 @@
 import os
 import json
 import requests
+import sys
 import anthropic
 
 # ── Environment variables ─────────────────────────────────────────────────────
@@ -342,6 +343,16 @@ def main():
     post_summary_comment(critical_count, suggested_count, HEAD_SHA)
 
     print("Review complete.")
+
+    # Exit with code 1 if critical issues found — this blocks merge on GitHub
+    if critical_count > 0:
+        print(
+            f"Exiting with code 1 — {critical_count} critical issue(s) found. Merge is blocked."
+        )
+        sys.exit(1)
+    else:
+        print("No critical issues found. Merge is allowed.")
+        sys.exit(0)
 
 
 if __name__ == "__main__":
