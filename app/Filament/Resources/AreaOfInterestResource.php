@@ -81,7 +81,6 @@ class AreaOfInterestResource extends Resource
 
     public static function getRelations(): array
     {
-        dd('test');
         return [];
     }
 
