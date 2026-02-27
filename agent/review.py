@@ -1,5 +1,6 @@
 import os
 import json
+import time
 import requests
 import sys
 import anthropic
@@ -37,7 +38,6 @@ def load_rulebook():
 
 # ── Step 2: Get already-reviewed commits ──────────────────────────────────────
 def get_reviewed_commits():
-    """Read existing PR comments to find which commits were already reviewed."""
     url = f"{GITHUB_API}/repos/{REPO_NAME}/issues/{PR_NUMBER}/comments"
     response = requests.get(url, headers=GITHUB_HEADERS)
     comments = response.json()
@@ -62,14 +62,12 @@ def get_diff():
 
 
 def is_trivial_diff(diff: str) -> bool:
-    """Returns True if the diff contains no substantive code changes."""
     lines = [l for l in diff.splitlines() if l.startswith("+") or l.startswith("-")]
     substantive = [l for l in lines if l.strip() not in ("+", "-", "+++", "---")]
     return len(substantive) == 0
 
 
 def truncate_diff(diff: str, max_chars: int = 80000) -> str:
-    """Truncate diff if it exceeds token-safe size."""
     if len(diff) <= max_chars:
         return diff
     truncated = diff[:max_chars]
@@ -83,8 +81,6 @@ def truncate_diff(diff: str, max_chars: int = 80000) -> str:
 def call_claude(diff: str, rulebook: str) -> dict:
     client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
     g = Github(GITHUB_TOKEN)
-
-    # ── Real tool functions ───────────────────────────────────────────────────
 
     def fetch_file(repo_name: str, filepath: str) -> str:
         try:
@@ -109,8 +105,6 @@ def call_claude(diff: str, rulebook: str) -> dict:
             return "\n".join(structure)
         except Exception as e:
             return f"Error fetching structure: {str(e)}"
-
-    # ── Tool definitions ──────────────────────────────────────────────────────
 
     tools = [
         {
@@ -144,8 +138,6 @@ def call_claude(diff: str, rulebook: str) -> dict:
         },
     ]
 
-    # ── Tool dispatcher ───────────────────────────────────────────────────────
-
     def dispatch_tool(name: str, args: dict) -> str:
         if name == "fetch_file":
             return fetch_file(**args)
@@ -153,8 +145,6 @@ def call_claude(diff: str, rulebook: str) -> dict:
             return fetch_repo_structure(**args)
         else:
             return f"Unknown tool: {name}"
-
-    # ── Agent loop ────────────────────────────────────────────────────────────
 
     MAX_TOOL_CALLS = 10
     tool_call_count = 0
@@ -189,7 +179,7 @@ You MUST return valid JSON in exactly this format and nothing else:
 
 Flag a MAXIMUM of 5 critical issues and 5 suggestions.
 Only comment on lines that appear in the diff.
-Return JSON only when you are done — no markdown, no preamble."""
+Do not write any text before or after the JSON. Output the JSON object immediately."""
 
     messages = [
         {
@@ -211,32 +201,35 @@ Return JSON only when you are done — no markdown, no preamble."""
             messages=messages,
         )
 
-        print(f"Stop reason: {response.stop_reason}")
-        print(f"Response content: {response.content}")
-
-        # Add assistant response to messages
         messages.append({"role": "assistant", "content": response.content})
 
         if response.stop_reason == "end_turn":
             for block in response.content:
                 if hasattr(block, "text"):
                     raw = block.text.strip()
-                    # Strip markdown code fences
                     if "```" in raw:
-                        raw = raw.split("```")[
-                            1
-                        ]  # get content between first pair of ```
+                        raw = raw.split("```")[1]
                         if raw.startswith("json"):
-                            raw = raw[4:]  # strip the word "json"
-                    # Find where JSON starts and ends
+                            raw = raw[4:]
                     start = raw.find("{")
                     end = raw.rfind("}") + 1
                     if start != -1 and end != 0:
                         raw = raw[start:end]
+
+                    # Log cost before returning
+                    usage = response.usage
+                    input_tokens = usage.input_tokens
+                    output_tokens = usage.output_tokens
+                    cost = (input_tokens / 1_000_000 * 3) + (
+                        output_tokens / 1_000_000 * 15
+                    )
+                    print(
+                        f"💰 Tokens: {input_tokens} in, {output_tokens} out — estimated cost: ${cost:.4f}"
+                    )
+
                     return json.loads(raw)
 
         elif response.stop_reason == "tool_use":
-            # Process tool calls
             tool_results = []
             for block in response.content:
                 if block.type == "tool_use":
@@ -260,7 +253,6 @@ Return JSON only when you are done — no markdown, no preamble."""
             print(f"Unexpected stop reason: {response.stop_reason}")
             break
 
-    # Fallback if loop exits without a clean end_turn
     raise Exception("Agent loop ended without producing a review.")
 
 
@@ -272,11 +264,6 @@ def get_pr_files():
 
 
 def build_line_position_map(pr_files):
-    """
-    Returns: {filename: {new_file_line_number: diff_position}}
-    diff_position = line number within the diff hunk (what GitHub expects)
-    new_file_line_number = actual line number in the new version of the file
-    """
     mapping = {}
     for f in pr_files:
         filename = f["filename"]
@@ -299,10 +286,10 @@ def build_line_position_map(pr_files):
                     new_line = 0
 
             elif patch_line.startswith("-"):
-                pass  # removed line, no new line number
+                pass
 
             elif patch_line.startswith("\\"):
-                position -= 1  # not a real line
+                position -= 1
 
             else:
                 new_line += 1
@@ -346,7 +333,6 @@ Please resolve all 🔴 Critical issues before requesting a human review.{extra_
 
 
 def post_inline_comments(feedback: dict, line_map: dict):
-    """Post inline review comments one at a time to avoid batch failures."""
     comments = []
     valid_files = set(line_map.keys())
 
@@ -396,7 +382,6 @@ def post_inline_comments(feedback: dict, line_map: dict):
         print("No valid inline comments to post.")
         return
 
-    # Post one at a time so a bad position doesn't kill the whole batch
     url = f"{GITHUB_API}/repos/{REPO_NAME}/pulls/{PR_NUMBER}/reviews"
     posted = 0
     for comment in comments:
@@ -420,33 +405,39 @@ def post_warning_comment(message: str):
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 def main():
+    start_time = time.time()
     print("Starting AI Code Review Agent...")
 
-    # Step 1: Load rulebook
     print("Loading rulebook...")
     rulebook = load_rulebook()
 
-    # Step 2: Check if this commit was already reviewed
     print("Checking previously reviewed commits...")
-    reviewed_commits = get_reviewed_commits()
-    if HEAD_SHA in reviewed_commits:
-        print(f"Commit {HEAD_SHA[:7]} already reviewed. Skipping.")
-        return
+    try:
+        reviewed_commits = get_reviewed_commits()
+        if HEAD_SHA in reviewed_commits:
+            print(f"Commit {HEAD_SHA[:7]} already reviewed. Skipping.")
+            return
+    except Exception as e:
+        print(f"Warning: Could not check reviewed commits: {e}. Proceeding anyway.")
 
-    # Step 3: Get the diff
     print("Fetching diff...")
-    diff = get_diff()
+    try:
+        diff = get_diff()
+    except Exception as e:
+        post_warning_comment(
+            f"⚠️ **AI Code Review:** Could not fetch PR diff. Error: `{str(e)[:200]}`\n\nPlease proceed with manual review."
+        )
+        return
 
     if is_trivial_diff(diff):
         print("Trivial diff detected. Skipping review.")
         post_warning_comment(
-            "🤖 **AI Code Review:** No substantive code changes detected in this diff. Review skipped."
+            "🤖 **AI Code Review:** No substantive code changes detected. Review skipped."
         )
         return
 
     diff = truncate_diff(diff)
 
-    # Step 4: Call Claude
     print("Calling Claude API...")
     try:
         feedback = call_claude(diff, rulebook)
@@ -463,22 +454,25 @@ def main():
         f"Feedback received: {critical_count} critical, {suggested_count} suggestions"
     )
 
-    # Step 5: Get PR files and build line position map
     print("Building line position map...")
-    pr_files = get_pr_files()
-    line_map = build_line_position_map(pr_files)
-    print(f"Files in diff: {list(line_map.keys())}")
-    print(
-        f"CollegeResource positions: {line_map.get('app/Filament/Resources/CollegeResource.php', {})}"
-    )
+    try:
+        pr_files = get_pr_files()
+        line_map = build_line_position_map(pr_files)
+    except Exception as e:
+        print(f"Warning: Could not build line map: {e}. Posting summary only.")
+        line_map = {}
 
-    # Step 6: Post comments
     print("Posting inline comments...")
     post_inline_comments(feedback, line_map)
 
     print("Posting summary comment...")
-    post_summary_comment(critical_count, suggested_count, HEAD_SHA)
+    try:
+        post_summary_comment(critical_count, suggested_count, HEAD_SHA)
+    except Exception as e:
+        print(f"Warning: Could not post summary comment: {e}")
 
+    elapsed = time.time() - start_time
+    print(f"⏱️  Total review time: {elapsed:.1f}s")
     print("Review complete.")
 
     # Exit with code 1 if critical issues found — this blocks merge on GitHub
@@ -486,6 +480,7 @@ def main():
         print(
             f"Exiting with code 1 — {critical_count} critical issue(s) found. Merge is blocked."
         )
+        exit(1)
         sys.exit(1)
     else:
         print("No critical issues found. Merge is allowed.")
