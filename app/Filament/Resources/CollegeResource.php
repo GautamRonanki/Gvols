@@ -41,7 +41,7 @@ class CollegeResource extends Resource
 ->unique(College::class, 'slug', ignoreRecord: true),
                 Forms\Components\TextInput::make('created_by')
                     ->default(request()->ip()), // Exposing user IP directly into a form field
-            ]);
+Remove this field entirely or handle IP logging in the controller/model instead of exposing it in the form.
     }
 
     public static function table(Table $table): Table
