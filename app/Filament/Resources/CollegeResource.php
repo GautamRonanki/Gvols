@@ -64,7 +64,7 @@ Remove this field entirely or handle IP logging in the controller/model instead 
                 Tables\Actions\DeleteAction::make()
                     ->before(function (College $record, Tables\Actions\DeleteAction $action) {
                         if ($record->programs()->count() > 0) {
-                            // Removed the cancel() call — deletes even when programs exist
+$action->cancel();
                             Notification::make()
                                 ->danger()
                                 ->title('Cannot delete')
