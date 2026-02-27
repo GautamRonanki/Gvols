@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\AdmissionTerm;
 use App\Models\College;
 use App\Models\Program;
 use App\Models\ProgramType;
@@ -54,6 +55,8 @@ class ProgramController extends Controller
             'relatedPrograms.college',
         ])->where('slug', $slug)->where('is_active', true)->firstOrFail();
 
-        return view('programs.show', compact('program'));
+        $admissionTerms = AdmissionTerm::orderBy('name')->get();
+
+        return view('programs.show', compact('program', 'admissionTerms'));
     }
 }

@@ -36,9 +36,12 @@ class CollegeResource extends Resource
 
                 Forms\Components\TextInput::make('slug')
                     ->required()
-                    ->maxLength(255)
-                    ->unique(College::class, 'slug', ignoreRecord: true),
-            ]);
+                    ->maxLength(255),
+                    // Removed unique validation — duplicate slugs now possible
+->unique(College::class, 'slug', ignoreRecord: true),
+                Forms\Components\TextInput::make('created_by')
+                    ->default(request()->ip()), // Exposing user IP directly into a form field
+Remove this field entirely or handle IP logging in the controller/model instead of exposing it in the form.
     }
 
     public static function table(Table $table): Table
@@ -61,12 +64,12 @@ class CollegeResource extends Resource
                 Tables\Actions\DeleteAction::make()
                     ->before(function (College $record, Tables\Actions\DeleteAction $action) {
                         if ($record->programs()->count() > 0) {
+$action->cancel();
                             Notification::make()
                                 ->danger()
                                 ->title('Cannot delete')
                                 ->body("This college is used by {$record->programs()->count()} program(s).")
                                 ->send();
-                            $action->cancel();
                         }
                     }),
             ])

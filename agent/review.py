@@ -3,6 +3,7 @@ import json
 import requests
 import sys
 import anthropic
+from github import Github
 
 # ── Environment variables ─────────────────────────────────────────────────────
 GITHUB_TOKEN = os.environ["GITHUB_TOKEN"]
@@ -81,23 +82,89 @@ def truncate_diff(diff: str, max_chars: int = 80000) -> str:
 # ── Step 4: Call Claude API ───────────────────────────────────────────────────
 def call_claude(diff: str, rulebook: str) -> dict:
     client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+    g = Github(GITHUB_TOKEN)
 
-    system_prompt = """You are an expert code reviewer for a Laravel TALL stack application (Tailwind, Alpine.js, Laravel, Livewire) with Flux UI and MySQL.
+    # ── Real tool functions ───────────────────────────────────────────────────
 
-You will be given:
-1. A code diff from a Pull Request
-2. A rulebook that defines the exact rules for this repository
+    def fetch_file(repo_name: str, filepath: str) -> str:
+        try:
+            repo = g.get_repo(repo_name)
+            file = repo.get_contents(filepath)
+            return file.decoded_content.decode("utf-8")
+        except Exception as e:
+            return f"Error fetching file: {str(e)}"
 
-Your job is to review the diff against the rulebook and return structured JSON feedback.
+    def fetch_repo_structure(repo_name: str) -> str:
+        try:
+            repo = g.get_repo(repo_name)
+            contents = repo.get_contents("")
+            structure = []
+            while contents:
+                item = contents.pop(0)
+                if item.type == "dir":
+                    structure.append(f"📁 {item.path}/")
+                    contents.extend(repo.get_contents(item.path))
+                else:
+                    structure.append(f"   {item.path}")
+            return "\n".join(structure)
+        except Exception as e:
+            return f"Error fetching structure: {str(e)}"
 
-STRICT RULES YOU MUST FOLLOW:
-- Flag a MAXIMUM of 5 critical issues and 5 suggestions. No more.
-- If there are more than 5 critical issues, flag only the most severe 5 and mention others may exist.
-- Only comment on lines that appear in the diff (lines starting with + or -).
-- Do not repeat the same feedback for multiple lines. Flag each issue type once.
-- Do not flag anything listed in the "What to Ignore" section of the rulebook.
-- Be specific. Reference the exact file and line number.
-- For suggestions, include a corrected code snippet where possible.
+    # ── Tool definitions ──────────────────────────────────────────────────────
+
+    tools = [
+        {
+            "name": "fetch_file",
+            "description": "Fetch a specific file from the repository when you need more context to understand the code changes",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "repo_name": {
+                        "type": "string",
+                        "description": "Repository name e.g. org/repo",
+                    },
+                    "filepath": {"type": "string", "description": "Path to the file"},
+                },
+                "required": ["repo_name", "filepath"],
+            },
+        },
+        {
+            "name": "fetch_repo_structure",
+            "description": "Fetch the repository directory structure when you need to understand how the codebase is organized",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "repo_name": {
+                        "type": "string",
+                        "description": "Repository name e.g. org/repo",
+                    }
+                },
+                "required": ["repo_name"],
+            },
+        },
+    ]
+
+    # ── Tool dispatcher ───────────────────────────────────────────────────────
+
+    def dispatch_tool(name: str, args: dict) -> str:
+        if name == "fetch_file":
+            return fetch_file(**args)
+        elif name == "fetch_repo_structure":
+            return fetch_repo_structure(**args)
+        else:
+            return f"Unknown tool: {name}"
+
+    # ── Agent loop ────────────────────────────────────────────────────────────
+
+    MAX_TOOL_CALLS = 10
+    tool_call_count = 0
+
+    system_prompt = """You are an expert code reviewer. You will be given a PR diff and a rulebook.
+
+Your process:
+1. Analyze the diff against the rulebook
+2. If you need more context (e.g. to understand a pattern or check an import), fetch relevant files
+3. Once you have enough information, produce your final structured review
 
 You MUST return valid JSON in exactly this format and nothing else:
 
@@ -106,7 +173,7 @@ You MUST return valid JSON in exactly this format and nothing else:
     {
       "file": "path/to/file.php",
       "line": 42,
-      "comment": "Your critical feedback here. Explain the risk clearly.",
+      "comment": "Your critical feedback here.",
       "suggestion": "Optional: corrected code snippet"
     }
   ],
@@ -114,45 +181,87 @@ You MUST return valid JSON in exactly this format and nothing else:
     {
       "file": "path/to/file.php",
       "line": 15,
-      "comment": "Your suggestion here. Frame it positively.",
+      "comment": "Your suggestion here.",
       "suggestion": "Optional: corrected code snippet"
     }
   ]
 }
 
-If there are no issues to flag, return:
-{
-  "critical": [],
-  "suggested": []
-}
+Flag a MAXIMUM of 5 critical issues and 5 suggestions.
+Only comment on lines that appear in the diff.
+Return JSON only when you are done — no markdown, no preamble."""
 
-Return JSON only. No explanation, no markdown, no preamble."""
+    messages = [
+        {
+            "role": "user",
+            "content": f"RULEBOOK:\n{rulebook}\n\n---\n\nPULL REQUEST DIFF:\n{diff}\n\nRepository: {REPO_NAME}\n\nReview this diff against the rulebook.",
+        }
+    ]
 
-    user_message = f"""RULEBOOK:
-{rulebook}
+    while True:
+        if tool_call_count >= MAX_TOOL_CALLS:
+            print(f"⚠️ Tool call limit reached. Proceeding with available context.")
+            break
 
----
+        response = client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=4000,
+            system=system_prompt,
+            tools=tools,
+            messages=messages,
+        )
 
-PULL REQUEST DIFF:
-{diff}
+        print(f"Stop reason: {response.stop_reason}")
+        print(f"Response content: {response.content}")
 
-Review this diff against the rulebook and return your structured JSON feedback."""
+        # Add assistant response to messages
+        messages.append({"role": "assistant", "content": response.content})
 
-    message = client.messages.create(
-        model="claude-sonnet-4-20250514",
-        max_tokens=4000,
-        messages=[{"role": "user", "content": user_message}],
-        system=system_prompt,
-    )
+        if response.stop_reason == "end_turn":
+            for block in response.content:
+                if hasattr(block, "text"):
+                    raw = block.text.strip()
+                    # Strip markdown code fences
+                    if "```" in raw:
+                        raw = raw.split("```")[
+                            1
+                        ]  # get content between first pair of ```
+                        if raw.startswith("json"):
+                            raw = raw[4:]  # strip the word "json"
+                    # Find where JSON starts and ends
+                    start = raw.find("{")
+                    end = raw.rfind("}") + 1
+                    if start != -1 and end != 0:
+                        raw = raw[start:end]
+                    return json.loads(raw)
 
-    raw = message.content[0].text.strip()
+        elif response.stop_reason == "tool_use":
+            # Process tool calls
+            tool_results = []
+            for block in response.content:
+                if block.type == "tool_use":
+                    tool_call_count += 1
+                    print(
+                        f"🔧 Tool call #{tool_call_count}: {block.name}({block.input})"
+                    )
+                    result = dispatch_tool(block.name, block.input)
+                    print(f"   ↳ {result[:100]}{'...' if len(result) > 100 else ''}")
+                    tool_results.append(
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": block.id,
+                            "content": result,
+                        }
+                    )
 
-    # Strip markdown code fences if present
-    if raw.startswith("```"):
-        raw = raw.split("\n", 1)[1]
-        raw = raw.rsplit("```", 1)[0]
+            messages.append({"role": "user", "content": tool_results})
 
-    return json.loads(raw)
+        else:
+            print(f"Unexpected stop reason: {response.stop_reason}")
+            break
+
+    # Fallback if loop exits without a clean end_turn
+    raise Exception("Agent loop ended without producing a review.")
 
 
 # ── Step 5: Get PR files for line mapping ─────────────────────────────────────
@@ -164,9 +273,9 @@ def get_pr_files():
 
 def build_line_position_map(pr_files):
     """
-    GitHub requires a 'position' value (line number within the diff hunk)
-    rather than the actual file line number when posting inline comments.
-    This builds a map: {filename: {line_number: position}}
+    Returns: {filename: {new_file_line_number: diff_position}}
+    diff_position = line number within the diff hunk (what GitHub expects)
+    new_file_line_number = actual line number in the new version of the file
     """
     mapping = {}
     for f in pr_files:
@@ -177,23 +286,27 @@ def build_line_position_map(pr_files):
 
         mapping[filename] = {}
         position = 0
-        current_line = 0
+        new_line = 0
 
         for patch_line in patch.splitlines():
             position += 1
+
             if patch_line.startswith("@@"):
-                # Parse the hunk header to get starting line number
-                # Format: @@ -old_start,old_count +new_start,new_count @@
                 try:
                     new_part = patch_line.split("+")[1].split("@@")[0].strip()
-                    current_line = int(new_part.split(",")[0]) - 1
+                    new_line = int(new_part.split(",")[0]) - 1
                 except (IndexError, ValueError):
-                    current_line = 0
+                    new_line = 0
+
             elif patch_line.startswith("-"):
-                pass  # Removed line — no new line number
+                pass  # removed line, no new line number
+
+            elif patch_line.startswith("\\"):
+                position -= 1  # not a real line
+
             else:
-                current_line += 1
-                mapping[filename][current_line] = position
+                new_line += 1
+                mapping[filename][new_line] = position
 
     return mapping
 
@@ -233,8 +346,9 @@ Please resolve all 🔴 Critical issues before requesting a human review.{extra_
 
 
 def post_inline_comments(feedback: dict, line_map: dict):
-    """Post inline review comments on specific lines of the diff."""
+    """Post inline review comments one at a time to avoid batch failures."""
     comments = []
+    valid_files = set(line_map.keys())
 
     for item in feedback.get("critical", []):
         file = item.get("file", "")
@@ -242,8 +356,13 @@ def post_inline_comments(feedback: dict, line_map: dict):
         comment_text = item.get("comment", "")
         suggestion = item.get("suggestion", "")
 
+        if file not in valid_files:
+            print(f"⚠️  Skipping {file} — not in diff")
+            continue
+
         position = line_map.get(file, {}).get(line)
         if not position:
+            print(f"⚠️  Skipping {file}:{line} — no position found")
             continue
 
         body = f"🔴 **Critical**\n\n{comment_text}"
@@ -258,8 +377,13 @@ def post_inline_comments(feedback: dict, line_map: dict):
         comment_text = item.get("comment", "")
         suggestion = item.get("suggestion", "")
 
+        if file not in valid_files:
+            print(f"⚠️  Skipping {file} — not in diff")
+            continue
+
         position = line_map.get(file, {}).get(line)
         if not position:
+            print(f"⚠️  Skipping {file}:{line} — no position found")
             continue
 
         body = f"🟡 **Suggestion**\n\n{comment_text}"
@@ -269,15 +393,24 @@ def post_inline_comments(feedback: dict, line_map: dict):
         comments.append({"path": file, "position": position, "body": body})
 
     if not comments:
+        print("No valid inline comments to post.")
         return
 
+    # Post one at a time so a bad position doesn't kill the whole batch
     url = f"{GITHUB_API}/repos/{REPO_NAME}/pulls/{PR_NUMBER}/reviews"
-    payload = {"commit_id": HEAD_SHA, "event": "COMMENT", "comments": comments}
-    response = requests.post(url, headers=GITHUB_HEADERS, json=payload)
-    if response.status_code not in (200, 201):
-        print(
-            f"Warning: Failed to post inline comments: {response.status_code} {response.text}"
-        )
+    posted = 0
+    for comment in comments:
+        payload = {"commit_id": HEAD_SHA, "event": "COMMENT", "comments": [comment]}
+        response = requests.post(url, headers=GITHUB_HEADERS, json=payload)
+        if response.status_code in (200, 201):
+            posted += 1
+            print(f"✅ Posted comment on {comment['path']}:{comment['position']}")
+        else:
+            print(
+                f"⚠️  Failed {comment['path']}:{comment['position']} — {response.status_code}"
+            )
+
+    print(f"Posted {posted}/{len(comments)} inline comments.")
 
 
 def post_warning_comment(message: str):
@@ -334,6 +467,10 @@ def main():
     print("Building line position map...")
     pr_files = get_pr_files()
     line_map = build_line_position_map(pr_files)
+    print(f"Files in diff: {list(line_map.keys())}")
+    print(
+        f"CollegeResource positions: {line_map.get('app/Filament/Resources/CollegeResource.php', {})}"
+    )
 
     # Step 6: Post comments
     print("Posting inline comments...")
