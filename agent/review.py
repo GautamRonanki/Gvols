@@ -370,6 +370,10 @@ def post_inline_comments(feedback: dict, line_map: dict):
 
         comments.append({"path": file, "position": position, "body": body})
 
+    print(f"Attempting to post {len(comments)} inline comments")
+    for c in comments:
+        print(f"  → {c['path']} position={c['position']}")
+
     if not comments:
         return
 
