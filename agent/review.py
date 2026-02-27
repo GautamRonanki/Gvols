@@ -345,8 +345,9 @@ Please resolve all 🔴 Critical issues before requesting a human review.{extra_
 
 
 def post_inline_comments(feedback: dict, line_map: dict):
-    """Post inline review comments on specific lines of the diff."""
+    """Post inline review comments one at a time to avoid batch failures."""
     comments = []
+    valid_files = set(line_map.keys())
 
     for item in feedback.get("critical", []):
         file = item.get("file", "")
@@ -354,8 +355,13 @@ def post_inline_comments(feedback: dict, line_map: dict):
         comment_text = item.get("comment", "")
         suggestion = item.get("suggestion", "")
 
+        if file not in valid_files:
+            print(f"⚠️  Skipping {file} — not in diff")
+            continue
+
         position = line_map.get(file, {}).get(line)
         if not position:
+            print(f"⚠️  Skipping {file}:{line} — no position found")
             continue
 
         body = f"🔴 **Critical**\n\n{comment_text}"
@@ -370,8 +376,13 @@ def post_inline_comments(feedback: dict, line_map: dict):
         comment_text = item.get("comment", "")
         suggestion = item.get("suggestion", "")
 
+        if file not in valid_files:
+            print(f"⚠️  Skipping {file} — not in diff")
+            continue
+
         position = line_map.get(file, {}).get(line)
         if not position:
+            print(f"⚠️  Skipping {file}:{line} — no position found")
             continue
 
         body = f"🟡 **Suggestion**\n\n{comment_text}"
@@ -380,20 +391,25 @@ def post_inline_comments(feedback: dict, line_map: dict):
 
         comments.append({"path": file, "position": position, "body": body})
 
-    print(f"Attempting to post {len(comments)} inline comments")
-    for c in comments:
-        print(f"  → {c['path']} position={c['position']}")
-
     if not comments:
+        print("No valid inline comments to post.")
         return
 
+    # Post one at a time so a bad position doesn't kill the whole batch
     url = f"{GITHUB_API}/repos/{REPO_NAME}/pulls/{PR_NUMBER}/reviews"
-    payload = {"commit_id": HEAD_SHA, "event": "COMMENT", "comments": comments}
-    response = requests.post(url, headers=GITHUB_HEADERS, json=payload)
-    if response.status_code not in (200, 201):
-        print(
-            f"Warning: Failed to post inline comments: {response.status_code} {response.text}"
-        )
+    posted = 0
+    for comment in comments:
+        payload = {"commit_id": HEAD_SHA, "event": "COMMENT", "comments": [comment]}
+        response = requests.post(url, headers=GITHUB_HEADERS, json=payload)
+        if response.status_code in (200, 201):
+            posted += 1
+            print(f"✅ Posted comment on {comment['path']}:{comment['position']}")
+        else:
+            print(
+                f"⚠️  Failed {comment['path']}:{comment['position']} — {response.status_code}"
+            )
+
+    print(f"Posted {posted}/{len(comments)} inline comments.")
 
 
 def post_warning_comment(message: str):
