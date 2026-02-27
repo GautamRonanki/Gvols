@@ -21,7 +21,7 @@ public function program(): BelongsTo
     }
 
     public function admissionTerm(): BelongsTo
-    {
+public function admissionTerm(): BelongsTo
         return $this->belongsTo(AdmissionTerm::class);
     }
 }
