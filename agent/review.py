@@ -223,6 +223,11 @@ Return JSON only when you are done — no markdown, no preamble."""
                     raw = block.text.strip()
                     if raw.startswith("```"):
                         raw = raw.split("\n", 1)[1].rsplit("```", 1)[0]
+
+                    # Find where the JSON actually starts
+                    json_start = raw.find("{")
+                    if json_start > 0:
+                        raw = raw[json_start:]
                     return json.loads(raw)
 
         elif response.stop_reason == "tool_use":
