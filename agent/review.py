@@ -267,6 +267,11 @@ def get_pr_files():
 
 
 def build_line_position_map(pr_files):
+    """
+    Returns: {filename: {new_file_line_number: diff_position}}
+    diff_position = line number within the diff hunk (what GitHub expects)
+    new_file_line_number = actual line number in the new version of the file
+    """
     mapping = {}
     for f in pr_files:
         filename = f["filename"]
@@ -276,26 +281,27 @@ def build_line_position_map(pr_files):
 
         mapping[filename] = {}
         position = 0
-        current_line = 0
+        new_line = 0
 
         for patch_line in patch.splitlines():
+            position += 1
+
             if patch_line.startswith("@@"):
-                position += 1
                 try:
                     new_part = patch_line.split("+")[1].split("@@")[0].strip()
-                    current_line = int(new_part.split(",")[0]) - 1
+                    new_line = int(new_part.split(",")[0]) - 1
                 except (IndexError, ValueError):
-                    current_line = 0
+                    new_line = 0
+
             elif patch_line.startswith("-"):
-                position += 1
-                # removed line — don't increment current_line
+                pass  # removed line, no new line number
+
             elif patch_line.startswith("\\"):
-                # "No newline at end of file" marker — skip entirely
-                pass
+                position -= 1  # not a real line
+
             else:
-                position += 1
-                current_line += 1
-                mapping[filename][current_line] = position
+                new_line += 1
+                mapping[filename][new_line] = position
 
     return mapping
 
