@@ -262,11 +262,6 @@ def get_pr_files():
 
 
 def build_line_position_map(pr_files):
-    """
-    GitHub requires a 'position' value (line number within the diff hunk)
-    rather than the actual file line number when posting inline comments.
-    This builds a map: {filename: {line_number: position}}
-    """
     mapping = {}
     for f in pr_files:
         filename = f["filename"]
@@ -279,18 +274,21 @@ def build_line_position_map(pr_files):
         current_line = 0
 
         for patch_line in patch.splitlines():
-            position += 1
             if patch_line.startswith("@@"):
-                # Parse the hunk header to get starting line number
-                # Format: @@ -old_start,old_count +new_start,new_count @@
+                position += 1
                 try:
                     new_part = patch_line.split("+")[1].split("@@")[0].strip()
                     current_line = int(new_part.split(",")[0]) - 1
                 except (IndexError, ValueError):
                     current_line = 0
             elif patch_line.startswith("-"):
-                pass  # Removed line — no new line number
+                position += 1
+                # removed line — don't increment current_line
+            elif patch_line.startswith("\\"):
+                # "No newline at end of file" marker — skip entirely
+                pass
             else:
+                position += 1
                 current_line += 1
                 mapping[filename][current_line] = position
 
