@@ -210,6 +210,9 @@ Return JSON only when you are done — no markdown, no preamble."""
             messages=messages,
         )
 
+        print(f"Stop reason: {response.stop_reason}")
+        print(f"Response content: {response.content}")
+
         # Add assistant response to messages
         messages.append({"role": "assistant", "content": response.content})
 
