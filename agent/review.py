@@ -2,6 +2,7 @@ import os
 import json
 import time
 import requests
+import sys
 import anthropic
 from github import Github
 
@@ -474,11 +475,16 @@ def main():
     print(f"⏱️  Total review time: {elapsed:.1f}s")
     print("Review complete.")
 
+    # Exit with code 1 if critical issues found — this blocks merge on GitHub
     if critical_count > 0:
         print(
             f"Exiting with code 1 — {critical_count} critical issue(s) found. Merge is blocked."
         )
         exit(1)
+        sys.exit(1)
+    else:
+        print("No critical issues found. Merge is allowed.")
+        sys.exit(0)
 
 
 if __name__ == "__main__":
