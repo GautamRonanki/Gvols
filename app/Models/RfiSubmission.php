@@ -16,7 +16,7 @@ class RfiSubmission extends Model
     ];
 
     public function program(): BelongsTo
-    {
+public function program(): BelongsTo
         return $this->belongsTo(Program::class);
     }
 
