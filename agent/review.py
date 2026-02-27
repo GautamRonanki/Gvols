@@ -217,17 +217,21 @@ Return JSON only when you are done — no markdown, no preamble."""
         messages.append({"role": "assistant", "content": response.content})
 
         if response.stop_reason == "end_turn":
-            # Agent is done — extract the final JSON
             for block in response.content:
                 if hasattr(block, "text"):
                     raw = block.text.strip()
-                    if raw.startswith("```"):
-                        raw = raw.split("\n", 1)[1].rsplit("```", 1)[0]
-
-                    # Find where the JSON actually starts
-                    json_start = raw.find("{")
-                    if json_start > 0:
-                        raw = raw[json_start:]
+                    # Strip markdown code fences
+                    if "```" in raw:
+                        raw = raw.split("```")[
+                            1
+                        ]  # get content between first pair of ```
+                        if raw.startswith("json"):
+                            raw = raw[4:]  # strip the word "json"
+                    # Find where JSON starts and ends
+                    start = raw.find("{")
+                    end = raw.rfind("}") + 1
+                    if start != -1 and end != 0:
+                        raw = raw[start:end]
                     return json.loads(raw)
 
         elif response.stop_reason == "tool_use":
@@ -446,6 +450,10 @@ def main():
     print("Building line position map...")
     pr_files = get_pr_files()
     line_map = build_line_position_map(pr_files)
+    print(f"Files in diff: {list(line_map.keys())}")
+    print(
+        f"CollegeResource positions: {line_map.get('app/Filament/Resources/CollegeResource.php', {})}"
+    )
 
     # Step 6: Post comments
     print("Posting inline comments...")
