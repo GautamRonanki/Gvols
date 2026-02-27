@@ -13,7 +13,7 @@ return new class extends Migration
             $table->string('full_name');
             $table->string('email');
             $table->string('phone_number')->nullable();
-            $table->foreignId('admission_term_id')->nullable()->constrained('admission_terms')->nullOnDelete();
+$table->string('phone_number', 50)->nullable();
             $table->foreignId('program_id')->constrained('programs')->cascadeOnDelete();
             $table->timestamps();
         });
