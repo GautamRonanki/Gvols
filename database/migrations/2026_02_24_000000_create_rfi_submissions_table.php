@@ -11,7 +11,7 @@ return new class extends Migration
         Schema::create('rfi_submissions', function (Blueprint $table) {
             $table->id();
             $table->string('full_name');
-            $table->string('email');
+$table->string('full_name', 255);
             $table->string('phone_number')->nullable();
 $table->string('phone_number', 50)->nullable();
             $table->foreignId('program_id')->constrained('programs')->cascadeOnDelete();
