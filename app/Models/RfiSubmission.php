@@ -16,12 +16,12 @@ class RfiSubmission extends Model
     ];
 
     public function program(): BelongsTo
-public function program(): BelongsTo
+    {
         return $this->belongsTo(Program::class);
     }
 
     public function admissionTerm(): BelongsTo
-public function admissionTerm(): BelongsTo
+    {
         return $this->belongsTo(AdmissionTerm::class);
     }
 }

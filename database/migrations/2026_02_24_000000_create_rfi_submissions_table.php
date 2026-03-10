@@ -11,10 +11,10 @@ return new class extends Migration
         Schema::create('rfi_submissions', function (Blueprint $table) {
             $table->id();
             $table->string('full_name');
-$table->string('full_name', 255);
+            $table->string('email');
             $table->string('phone_number')->nullable();
-$table->string('phone_number', 50)->nullable();
-Consider using ->constrained('programs')->restrictOnDelete() or ->nullOnDelete() to prevent accidental data loss
+            $table->foreignId('admission_term_id')->constrained('admission_terms')->restrictOnDelete();
+            $table->foreignId('program_id')->constrained('programs')->restrictOnDelete();
             $table->timestamps();
         });
     }
