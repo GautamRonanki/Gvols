@@ -36,12 +36,9 @@ class CollegeResource extends Resource
 
                 Forms\Components\TextInput::make('slug')
                     ->required()
-                    ->maxLength(255),
-                    // Removed unique validation — duplicate slugs now possible
-->unique(College::class, 'slug', ignoreRecord: true),
-                Forms\Components\TextInput::make('created_by')
-                    ->default(request()->ip()), // Exposing user IP directly into a form field
-Remove this field entirely or handle IP logging in the controller/model instead of exposing it in the form.
+                    ->maxLength(255)
+                    ->unique(College::class, 'slug', ignoreRecord: true),
+            ]);
     }
 
     public static function table(Table $table): Table

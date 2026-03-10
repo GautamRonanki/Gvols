@@ -151,35 +151,47 @@ def call_claude(diff: str, rulebook: str) -> dict:
 
     system_prompt = """You are an expert code reviewer. You will be given a PR diff and a rulebook.
 
-Your process:
-1. Analyze the diff against the rulebook
-2. If you need more context (e.g. to understand a pattern or check an import), fetch relevant files
-3. Once you have enough information, produce your final structured review
+    UNDERSTANDING THE DIFF FORMAT:
+    The diff uses standard unified diff format:
+    - Lines starting with "-" are being REMOVED (old code, no longer exists after this PR)
+    - Lines starting with "+" are being ADDED (new code being introduced in this PR)
+    - Lines with no prefix are unchanged context lines shown for reference
 
-You MUST return valid JSON in exactly this format and nothing else:
+    IMPORTANT: Only review the NEW code (lines with "+"). Do not flag issues
+    in removed lines (lines with "-") — those are being deleted by this PR.
+    If a line with "-" shows a problem and the "+" line fixes it, that is a
+    good change, not an issue. Never flag something as a problem if the PR
+    is actively fixing it.
 
-{
-  "critical": [
+    Your process:
+    1. Analyze the diff against the rulebook
+    2. If you need more context (e.g. to understand a pattern or check an import), fetch relevant files
+    3. Once you have enough information, produce your final structured review
+
+    You MUST return valid JSON in exactly this format and nothing else:
+
     {
-      "file": "path/to/file.php",
-      "line": 42,
-      "comment": "Your critical feedback here.",
-      "suggestion": "Optional: corrected code snippet"
+    "critical": [
+        {
+        "file": "path/to/file.php",
+        "line": 42,
+        "comment": "Your critical feedback here.",
+        "suggestion": "Optional: corrected code snippet"
+        }
+    ],
+    "suggested": [
+        {
+        "file": "path/to/file.php",
+        "line": 15,
+        "comment": "Your suggestion here.",
+        "suggestion": "Optional: corrected code snippet"
+        }
+    ]
     }
-  ],
-  "suggested": [
-    {
-      "file": "path/to/file.php",
-      "line": 15,
-      "comment": "Your suggestion here.",
-      "suggestion": "Optional: corrected code snippet"
-    }
-  ]
-}
 
-Flag a MAXIMUM of 5 critical issues and 5 suggestions.
-Only comment on lines that appear in the diff.
-Do not write any text before or after the JSON. Output the JSON object immediately."""
+    Flag a MAXIMUM of 5 critical issues and 5 suggestions.
+    Only comment on lines that appear in the diff.
+    Do not write any text before or after the JSON. Output the JSON object immediately."""
 
     messages = [
         {
@@ -227,7 +239,16 @@ Do not write any text before or after the JSON. Output the JSON object immediate
                         f"💰 Tokens: {input_tokens} in, {output_tokens} out — estimated cost: ${cost:.4f}"
                     )
 
-                    return json.loads(raw)
+                    # Fix A: Escape backslashes for JSON parsing (PHP namespaces etc.)
+                    raw = raw.replace("\\", "\\\\")
+
+                    # Fix C: Safety net — don't crash if parsing still fails
+                    try:
+                        return json.loads(raw)
+                    except json.JSONDecodeError as e:
+                        print(f"⚠️ JSON parse error: {e}")
+                        print(f"Raw response from Claude:\n{raw[:500]}")
+                        return {"critical": [], "suggested": []}
 
         elif response.stop_reason == "tool_use":
             tool_results = []
@@ -423,6 +444,9 @@ def main():
     print("Fetching diff...")
     try:
         diff = get_diff()
+        print(f"=== RAW DIFF START ===")
+        print(diff[:3000])  # first 3000 chars so it doesn't flood your terminal
+        print(f"=== RAW DIFF END ===")
     except Exception as e:
         post_warning_comment(
             f"⚠️ **AI Code Review:** Could not fetch PR diff. Error: `{str(e)[:200]}`\n\nPlease proceed with manual review."
