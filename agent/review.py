@@ -432,6 +432,9 @@ def main():
     print("Fetching diff...")
     try:
         diff = get_diff()
+        print(f"=== RAW DIFF START ===")
+        print(diff[:3000])  # first 3000 chars so it doesn't flood your terminal
+        print(f"=== RAW DIFF END ===")
     except Exception as e:
         post_warning_comment(
             f"⚠️ **AI Code Review:** Could not fetch PR diff. Error: `{str(e)[:200]}`\n\nPlease proceed with manual review."
