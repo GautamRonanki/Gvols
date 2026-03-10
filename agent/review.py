@@ -227,7 +227,16 @@ Do not write any text before or after the JSON. Output the JSON object immediate
                         f"💰 Tokens: {input_tokens} in, {output_tokens} out — estimated cost: ${cost:.4f}"
                     )
 
-                    return json.loads(raw)
+                    # Fix A: Escape backslashes for JSON parsing (PHP namespaces etc.)
+                    raw = raw.replace("\\", "\\\\")
+
+                    # Fix C: Safety net — don't crash if parsing still fails
+                    try:
+                        return json.loads(raw)
+                    except json.JSONDecodeError as e:
+                        print(f"⚠️ JSON parse error: {e}")
+                        print(f"Raw response from Claude:\n{raw[:500]}")
+                        return {"critical": [], "suggested": []}
 
         elif response.stop_reason == "tool_use":
             tool_results = []
